@@ -4,7 +4,6 @@
 
 #include <thread>
 #include <vector>
-#include <ctime>
 
 namespace Socket
 {
