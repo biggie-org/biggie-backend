@@ -1,0 +1,14 @@
+table C00PacketKeepAlive 
+{
+	test: byte;
+}
+
+union Packets { C00PacketKeepAlive }
+
+table Packet 
+{
+	id: byte;
+	packets: Packets;
+}
+
+root_type Packet;

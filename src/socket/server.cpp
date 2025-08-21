@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "../utils/logger/logger.hpp"
+#include "../packets/handler/handler.hpp"
 
 #include <thread>
 #include <vector>
@@ -7,7 +8,7 @@
 
 namespace Socket
 {
-	std::vector<SocketObject*> clients;
+	std::vector<SocketData*> clients;
 
 	void PostReceive(SocketData* data);
 	
@@ -20,24 +21,60 @@ namespace Socket
 
 		return ip_str;
 	}
+
+	void DisconnectClient(SocketData* data)
+	{
+		Logger::Alert(SOCKET_CATEGORY, "Client disconnected: '" + GetIpFromAddr(data->sock->addr) + "'...");
+		
+		closesocket(data->sock->socket);
+
+		int i = 0;
+
+		for (SocketData* client : clients)
+		{
+			if (client == data)
+			{
+				clients.erase(clients.begin() + i);
+
+				break;
+			}
+
+			i++;
+		}
+		
+		delete data->sock;
+		delete data;
+	}
+
+	bool ContainsClient(SocketData* data)
+	{
+		for (SocketData* client : clients)
+		{
+			if (client == data)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
 	
 	void HandleClient(SocketData* data, DWORD bytes) 
 	{
+		if (!ContainsClient(data))
+		{
+			return;
+		}
+		
 		if (bytes == 0) // cliente desconectou
 		{
-			Logger::Alert(SOCKET_CATEGORY, "Client disconnected: '" + GetIpFromAddr(data->sock->addr) + "'...");
-			
-			closesocket(data->sock->socket);
-			
-			delete data->sock;
-			delete data;
+			DisconnectClient(data);
 			
 			return;
 		}
-	
-		std::string str(data->buffer, bytes);
-		Logger::Alert(SOCKET_CATEGORY, "Client with ip: '" + GetIpFromAddr(data->sock->addr) + "' sent: '" + str + "'...");
-	
+
+		PacketHandler::HandleClientPacket(data, (data->buffer + 4), ((int*) data->buffer)[0]);
+
 		ZeroMemory(data->buffer, sizeof(data->buffer));
 	
 		PostReceive(data); // da receive denovo (loop)
@@ -67,9 +104,14 @@ namespace Socket
 	
 	void PostReceive(SocketData* data) 
 	{
+		if (!ContainsClient(data))
+		{
+			return;
+		}
+		
 		DWORD flags = 0;
 
-		data->wsa_buf.buf = data->buffer;
+		data->wsa_buf.buf = (char*) data->buffer;
 		data->wsa_buf.len = sizeof(data->buffer);
 		
 		ZeroMemory(&data->overlapped, sizeof(OVERLAPPED));
@@ -83,10 +125,7 @@ namespace Socket
 		{
 			Logger::Error(SOCKET_CATEGORY, "Failed to receive message from: '" + GetIpFromAddr(data->sock->addr) + "'...");
 			
-			closesocket(data->sock->socket);
-			
-			delete data->sock;
-			delete data;
+			DisconnectClient(data);
 		}
 	}
 
@@ -152,14 +191,16 @@ namespace Socket
 			}
 
 			SocketObject* sock_obj = new SocketObject{ client_socket, client_addr };
-			clients.push_back(sock_obj);	
+			SocketData* data = new SocketData{ {}, {}, {}, sock_obj };
+	
+			clients.push_back(data);	
+
 
 			// adiciona o socket ao IOCP principal (logo, qualquer função suportada pelo IOCP que for callada, vai ser handle no queue)
 			CreateIoCompletionPort((HANDLE) client_socket, iocp, (ULONG_PTR) sock_obj, 0);
 
 			Logger::Success(SOCKET_CATEGORY, "Client connected: '" + GetIpFromAddr(client_addr) + "'...");
 			
-			SocketData* data = new SocketData{ {}, {}, {}, sock_obj };
 			PostReceive(data); // primeiro receive (inicia o loop de receives do client)
 		}
 

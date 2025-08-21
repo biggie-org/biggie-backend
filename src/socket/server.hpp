@@ -7,8 +7,6 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
-#define SOCKET_CATEGORY "Socket"
-
 typedef struct SocketObject SocketObject;
 typedef struct SocketData SocketData;
 
@@ -22,16 +20,17 @@ struct SocketObject
 
 struct SocketData 
 {
-	OVERLAPPED    overlapped;
-	WSABUF        wsa_buf;
+	OVERLAPPED             overlapped;
+	WSABUF                 wsa_buf;
 
-	char          buffer[512];
-	SocketObject* sock;
+	unsigned char          buffer[512];
+	SocketObject*          sock;
 };
 
 namespace Socket 
 {
-	void InitServer(const char* address, const int PORT);
+	void InitServer      (const char* address, const int PORT);
+	void DisconnectClient(SocketData* data);
 }
 
 #endif
