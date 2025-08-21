@@ -80,7 +80,7 @@ namespace Socket
 		PostReceive(data); // da receive denovo (loop)
 	}
 	
-	void WorkerThread(HANDLE iocp) 
+	void WorkerThread(const HANDLE iocp)
 	{
 		while (true) // vai dando handle nos queues (tasks assincronas que emitiram event)
 		{
@@ -166,7 +166,7 @@ namespace Socket
 
 		const int THREADS_SIZE = static_cast<int>(sys_info.dwNumberOfProcessors * 2);
 
-		HANDLE iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, THREADS_SIZE);
+		HANDLE iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, THREADS_SIZE);
 
 		for (int i = 0; i < THREADS_SIZE; i++) // thread pool
 		{
@@ -178,7 +178,7 @@ namespace Socket
 			sockaddr_in client_addr;
 			int addr_size = sizeof(client_addr);
 
-			SOCKET client_socket = accept(server_socket, (sockaddr*) &client_addr, &addr_size);
+			const SOCKET client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_addr), &addr_size);
 
 			if (client_socket == INVALID_SOCKET)
 			{

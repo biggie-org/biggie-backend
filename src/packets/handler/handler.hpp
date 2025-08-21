@@ -3,11 +3,9 @@
 #ifndef HANDLER_HPP
 #define HANDLER_HPP
 
-#include <stdint.h>
-
 #define HANDLER_CATEGORY "Handler"
 
-typedef struct SocketData SocketData;
+typedef SocketData SocketData;
 
 namespace PacketHandler
 {

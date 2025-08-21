@@ -41,7 +41,7 @@ struct UserData
 
 namespace Socket 
 {
-	void InitServer       (const char* ADDRESS, const int PORT);
+	void InitServer       (const char* ADDRESS, int PORT);
 	void DisconnectClient (const SocketData* data);
 }
 
