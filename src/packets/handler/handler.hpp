@@ -13,5 +13,5 @@ namespace PacketHandler
 {
 	void HandleClientPacket(SocketData* socket, unsigned char* data, int length);
 }
-
+ 
 #endif
