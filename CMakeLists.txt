@@ -10,8 +10,8 @@ include_directories(${CMAKE_SOURCE_DIR}/libs/flatbuffers/include)
 add_executable(biggie-backend
         src/main.cpp
         src/socket/server.cpp
-	src/utils/logger/logger.cpp
-	src/packets/handler/handler.cpp
+		src/utils/logger/logger.cpp
+		src/packets/handler/handler.cpp
 )
 
 target_link_libraries(biggie-backend ws2_32)

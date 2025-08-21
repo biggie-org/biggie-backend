@@ -15,11 +15,11 @@ namespace PacketHandler
 			{
 				std::stringstream info;
 
-				const int8_t test = static_cast<const C00PacketKeepAlive*>(packet)->test();
+				const uint8_t test = reinterpret_cast<const C00PacketKeepAlive*>(packet)->test();
 
 				info << "C00:\n{\n";
 				info << "|    Test: " << static_cast<unsigned int>(test) << "\n";
-				info << "}\n";
+				info << "}";
 
 				return info.str();
 			}
