@@ -15,20 +15,23 @@ namespace PacketHandler
 			{
 				std::stringstream info;
 
-				int8_t test = ((C00PacketKeepAlive*) packet)->test();
+				const int8_t test = static_cast<const C00PacketKeepAlive*>(packet)->test();
 
-				info << "C00: {\n";
+				info << "C00:\n{\n";
 				info << "|    Test: " << static_cast<unsigned int>(test) << "\n";
 				info << "}\n";
 
 				return info.str();
 			}
-		}
 
-		return nullptr;
+			default:
+			{
+				return "";
+			}
+		}
 	}
 
-	bool ValidatePacket(unsigned char* data, const int length)
+	bool ValidatePacket(const unsigned char* data, const int length)
 	{
 		flatbuffers::Verifier verifier(data, length);
 
@@ -49,7 +52,7 @@ namespace PacketHandler
 		Logger::Alert(HANDLER_CATEGORY, "C00 Packet Info:\n" + GetPacketInfoFormatted(c00, 0));
 	}
 	
-	void HandleClientPacket(SocketData* socket, unsigned char* data, int length)
+	void HandleClientPacket(const SocketData* socket, const unsigned char* data, const int length)
 	{
 		if (!ValidatePacket(data, length))
 		{
@@ -75,7 +78,6 @@ namespace PacketHandler
 			default:
 			{
 				Logger::Error(HANDLER_CATEGORY, "Invalid packet sent...");
-
 				Socket::DisconnectClient(socket);
 			}
 		}

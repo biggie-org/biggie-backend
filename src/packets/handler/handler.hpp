@@ -11,7 +11,7 @@ typedef struct SocketData SocketData;
 
 namespace PacketHandler
 {
-	void HandleClientPacket(SocketData* socket, unsigned char* data, int length);
+	void HandleClientPacket(const SocketData* socket, const unsigned char* data, int length);
 }
 
 #endif

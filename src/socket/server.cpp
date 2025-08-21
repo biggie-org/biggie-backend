@@ -12,7 +12,7 @@ namespace Socket
 
 	void PostReceive(SocketData* data);
 	
-	std::string GetIpFromAddr(sockaddr_in addr)
+	std::string GetIpFromAddr(const sockaddr_in addr)
 	{
 		char ip_c_str[INET_ADDRSTRLEN];
 		inet_ntop(AF_INET, &(addr.sin_addr), ip_c_str, INET_ADDRSTRLEN);
@@ -22,7 +22,7 @@ namespace Socket
 		return ip_str;
 	}
 
-	void DisconnectClient(SocketData* data)
+	void DisconnectClient(const SocketData* data)
 	{
 		Logger::Alert(SOCKET_CATEGORY, "Client disconnected: '" + GetIpFromAddr(data->sock->addr) + "'...");
 		
@@ -30,7 +30,7 @@ namespace Socket
 
 		int i = 0;
 
-		for (SocketData* client : clients)
+		for (const SocketData* client : clients)
 		{
 			if (client == data)
 			{
@@ -46,9 +46,9 @@ namespace Socket
 		delete data;
 	}
 
-	bool ContainsClient(SocketData* data)
+	bool ContainsClient(const SocketData* data)
 	{
-		for (SocketData* client : clients)
+		for (const SocketData* client : clients)
 		{
 			if (client == data)
 			{
@@ -86,17 +86,15 @@ namespace Socket
 		{
 			DWORD bytes = 0;
 			ULONG_PTR key = 0;
-			LPOVERLAPPED overlapped = NULL;
+			LPOVERLAPPED overlapped = nullptr;
 	
 			// fica esperando por queues disponiveis, caso não tenha nada, espera infinitamente até ter (INFINITE)
-			bool success = GetQueuedCompletionStatus(iocp, &bytes, &key, &overlapped, INFINITE);
-			
-			if (!success) 
+			if (!GetQueuedCompletionStatus(iocp, &bytes, &key, &overlapped, INFINITE))
 			{
 				continue;
 			}
-	
-			SocketData* data = CONTAINING_RECORD(overlapped, SocketData, overlapped); // pega a struct toda de onde esse ponteiro fica
+
+			const auto data = CONTAINING_RECORD(overlapped, SocketData, overlapped); // pega a struct toda de onde esse ponteiro fica
 
 			HandleClient(data, bytes);
 		}
@@ -111,7 +109,7 @@ namespace Socket
 		
 		DWORD flags = 0;
 
-		data->wsa_buf.buf = (char*) data->buffer;
+		data->wsa_buf.buf = reinterpret_cast<char*>(data->buffer);
 		data->wsa_buf.len = sizeof(data->buffer);
 		
 		ZeroMemory(&data->overlapped, sizeof(OVERLAPPED));
@@ -119,9 +117,7 @@ namespace Socket
 		DWORD bytes = 0;
 
 		// chama receive assincrono (quando for encontrado dados, ele da handle no queue)
-		int ret = WSARecv(data->sock->socket, &data->wsa_buf, 1, &bytes, &flags, &data->overlapped, NULL);
-		
-		if (ret == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) 
+		if (WSARecv(data->sock->socket, &data->wsa_buf, 1, &bytes, &flags, &data->overlapped, nullptr) == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
 		{
 			Logger::Error(SOCKET_CATEGORY, "Failed to receive message from: '" + GetIpFromAddr(data->sock->addr) + "'...");
 			
@@ -138,7 +134,7 @@ namespace Socket
 			exit(1);
 		}
 
-		SOCKET server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		const SOCKET server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 		if (server_socket == INVALID_SOCKET) 
 		{
@@ -151,7 +147,7 @@ namespace Socket
 		server_addr.sin_addr.s_addr = inet_addr(ADDRESS);
 		server_addr.sin_port = htons(PORT);
 
-		if (bind(server_socket, (sockaddr*) &server_addr, sizeof(server_addr)) == SOCKET_ERROR) 
+		if (bind(server_socket, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) == SOCKET_ERROR)
 		{
 			Logger::Error(SOCKET_CATEGORY, "Failed to bind socket in port: " + std::to_string(PORT));
 			exit(1);
@@ -168,7 +164,7 @@ namespace Socket
 		SYSTEM_INFO sys_info;
 		GetSystemInfo(&sys_info);
 
-		const int THREADS_SIZE = sys_info.dwNumberOfProcessors * 2;
+		const int THREADS_SIZE = static_cast<int>(sys_info.dwNumberOfProcessors * 2);
 
 		HANDLE iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, THREADS_SIZE);
 
@@ -187,25 +183,23 @@ namespace Socket
 			if (client_socket == INVALID_SOCKET)
 			{
 				Logger::Alert(SOCKET_CATEGORY, "Invalid client socket found...");
+				
 				continue;
 			}
 
-			SocketObject* sock_obj = new SocketObject{ client_socket, client_addr };
-			SocketData* data = new SocketData{ {}, {}, {}, sock_obj };
+			auto* sock_obj = new SocketObject{ client_socket, client_addr };
+			auto* data = new SocketData{ {}, {}, {}, sock_obj };
 	
 			clients.push_back(data);	
 
 
 			// adiciona o socket ao IOCP principal (logo, qualquer função suportada pelo IOCP que for callada, vai ser handle no queue)
-			CreateIoCompletionPort((HANDLE) client_socket, iocp, (ULONG_PTR) sock_obj, 0);
+			CreateIoCompletionPort(reinterpret_cast<HANDLE>(client_socket), iocp, reinterpret_cast<ULONG_PTR>(sock_obj), 0);
 
 			Logger::Success(SOCKET_CATEGORY, "Client connected: '" + GetIpFromAddr(client_addr) + "'...");
 			
 			PostReceive(data); // primeiro receive (inicia o loop de receives do client)
 		}
-
-		closesocket(server_socket);
-		WSACleanup();
 	}
 }
 

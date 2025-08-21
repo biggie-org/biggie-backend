@@ -6,15 +6,15 @@ namespace Logger
 {
 	std::tm GetNow()
 	{
-		std::time_t time = std::time(NULL);
-		std::tm now;
+		const std::time_t time = std::time(nullptr);
+		std::tm now{};
 
 		localtime_s(&now, &time);
 
 		return now;
 	}
 
-	std::string GetTimeFormatted(std::tm* now, std::stringstream& stream)
+	std::string GetTimeFormatted(const std::tm* now, std::stringstream& stream)
 	{
 		stream.str("");
 		stream.clear();
@@ -27,7 +27,7 @@ namespace Logger
 		return stream.str();
 	}
 
-	std::string GetDateFormatted(std::tm* now, std::stringstream& stream)
+	std::string GetDateFormatted(const std::tm* now, std::stringstream& stream)
 	{
 		stream.str("");
 		stream.clear();
@@ -40,15 +40,15 @@ namespace Logger
 		return stream.str();
 	}
 	
-	void Error(std::string category, std::string str)
+	void Error(const std::string& category, const std::string& str)
 	{
 		std::stringstream stream;
-		std::tm now = GetNow();
+		const std::tm now = GetNow();
 
 		std::cout << "[" << GetDateFormatted(&now, stream) << "] " << "[" << GetTimeFormatted(&now, stream) << "] [" << category << "] [ERROR] " << str << "\n";
 	}
 
-	void Alert(std::string category, std::string str)
+	void Alert(const std::string& category, const std::string& str)
 	{
 		std::stringstream stream;
 		std::tm now = GetNow();
@@ -56,10 +56,10 @@ namespace Logger
 		std::cout << "[" << GetDateFormatted(&now, stream) << "] " << "[" << GetTimeFormatted(&now, stream) << "] [" << category << "] [ALERT] " << str << "\n";
 	}
 
-	void Success(std::string category, std::string str)
+	void Success(const std::string& category, const std::string& str)
 	{
 		std::stringstream stream;
-		std::tm now = GetNow();
+		const std::tm now = GetNow();
 
 		std::cout << "[" << GetDateFormatted(&now, stream) << "] " << "[" << GetTimeFormatted(&now, stream) << "] [" << category << "] [SUCCESS] " << str << "\n";
 	}
