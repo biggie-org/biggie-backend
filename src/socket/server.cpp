@@ -1,55 +1,290 @@
-#include "server.hpp"
-#include "../utils/logger/logger.hpp"
 #include "../packets/handler/handler.hpp"
+#include "server.hpp"
 
+#include <boost/asio.hpp>
+
+#include <chrono>
+#include <cstddef>
+#include <iostream>
+#include <mutex>
+#include <string>
 #include <thread>
-#include <vector>
+#include <queue>
 
-namespace Socket
+#include "../../libs/hiredis/adapters/libuv.h"
+#include "../../libs/hiredis/async.h"
+
+#include "../utils/logger/logger.hpp"
+
+
+using boost::asio::ip::tcp;
+using namespace boost::asio;
+using namespace std::chrono_literals;
+
+namespace Auth 
 {
-	std::vector<SocketData*> clients;
+	redisAsyncContext* connection = nullptr;
+	uv_loop_t* loop = nullptr;
+	uv_async_t redis_async;
 
-	void PostReceive(SocketData* data);
-	
-	std::string GetIpFromAddr(const sockaddr_in addr)
+	std::mutex commands_mutex;
+	std::queue<CommandQueue*> commands_queue;
+
+	void HandleAuthenticateCallback(redisAsyncContext* context, void* response, void* data)
 	{
-		char ip_c_str[INET_ADDRSTRLEN];
-		inet_ntop(AF_INET, &(addr.sin_addr), ip_c_str, INET_ADDRSTRLEN);
+		CommandQueue* cmd = reinterpret_cast<CommandQueue*>(data);
+		redisReply* reply = reinterpret_cast<redisReply*>(response);
 
-		std::string ip_str = ip_c_str;
-
-		return ip_str;
-	}
-
-	void DisconnectClient(const SocketData* data)
-	{
-		Logger::Alert(SOCKET_CATEGORY, "Client disconnected: '" + GetIpFromAddr(data->sock->addr) + "'...");
-		
-		closesocket(data->sock->socket);
-
-		int i = 0;
-
-		for (const SocketData* client : clients)
+		if (response == nullptr)
 		{
-			if (client == data)
-			{
-				clients.erase(clients.begin() + i);
+			delete cmd;
+			
+			return;
+		}
 
-				break;
-			}
-
-			i++;
+		if (data == nullptr)
+		{
+			delete cmd;
+			
+			return;
 		}
 		
-		delete data->sock;
-		delete data;
+		if (cmd->data->is_authed)
+		{
+			delete cmd;
+
+			Logger::Error(AUTH_CATEGORY, "User failed to authenticate...");
+			
+			return;
+		}
+		
+		if (reply->type != REDIS_REPLY_ARRAY)
+		{
+			delete cmd;
+
+			Logger::Error(AUTH_CATEGORY, "User failed to authenticate...");
+
+			return;
+		}
+
+		std::string upass = "";
+
+		for (int i = 0; i + 1 < reply->elements; i += 2)
+		{
+			std::string field = reply->element[i]->str;
+			std::string value = reply->element[i + 1]->str;
+			
+			if (field == "uname")
+			{
+				cmd->data->uname = value;
+			}
+			else if (field == "uid")
+			{
+				cmd->data->uid = std::stoi(value);
+			}
+			else if (field == "upass")
+			{
+				upass = value;
+			}
+		}
+
+		if (upass != cmd->upass)
+		{
+			delete cmd;
+
+			Logger::Error(AUTH_CATEGORY, "User failed to authenticate...");
+
+			return;
+		}
+
+		Logger::Success(AUTH_CATEGORY, "User successfully authenticated...");
+		cmd->data->is_authed = true;
+
+		std::shared_ptr<flatbuffers::FlatBufferBuilder> packet = PacketHandler::CreateS01Packet(std::to_string(cmd->data->uid));
+		PacketHandler::SendPacket(cmd->data, std::move(packet));
+		
+		delete cmd;
+	}
+	
+	void AuthenticateUser(CommandQueue* queue)
+	{
+		const char* ARGV[] = { "HGETALL", queue->uname.c_str() };
+		redisAsyncCommandArgv(connection, HandleAuthenticateCallback, queue, 2, ARGV, nullptr);
 	}
 
-	bool ContainsClient(const SocketData* data)
+	void HandleCallback(uv_async_t* handle) 
 	{
-		for (const SocketData* client : clients)
+		std::lock_guard<std::mutex> lock(commands_mutex);
+
+		while (!commands_queue.empty()) 
 		{
-			if (client == data)
+			CommandQueue* cmd = commands_queue.front();
+			commands_queue.pop();
+			
+			AuthenticateUser(cmd);
+		}
+	}
+
+	void InitDatabase() 
+	{
+		loop = uv_default_loop();
+		connection = redisAsyncConnect("127.0.0.1", 3040);
+		
+		if (!connection || connection->err) 
+		{
+			std::cerr << "Failed to connect to Redis" << std::endl;
+			return;
+		}
+
+		redisLibuvAttach(connection, loop);
+		uv_async_init(loop, &redis_async, HandleCallback);
+
+		std::thread([&]{ uv_run(loop, UV_RUN_DEFAULT); }).detach();
+	}
+
+	redisAsyncContext* GetConnection()
+	{
+		return connection;
+	}
+
+	void SendAuthenticateAsync(std::shared_ptr<SocketData> data, const std::string uname, const std::string upass) 
+	{
+		std::lock_guard<std::mutex> lock(commands_mutex);
+
+		CommandQueue* queue = new CommandQueue{{}, {}, {}};
+		queue->data = data;
+		queue->uname = uname;
+		queue->upass = upass;
+
+		commands_queue.push(queue);
+		uv_async_send(&redis_async);
+	}
+}
+
+class Session : public std::enable_shared_from_this<Session> 
+{
+	std::shared_ptr<SocketData> data;
+	std::vector<char> buffer_;
+	std::vector<char> buffer;
+
+	public:
+		Session(std::shared_ptr<SocketData> data) : buffer_(1024) 
+		{
+			this->data = data;
+		}
+
+		void Start() 
+		{
+			Read();
+		}
+
+	private:
+		void Read() 
+		{
+			auto self(shared_from_this());
+			data->socket.async_read_some(boost::asio::buffer(buffer_),
+			[this, self](boost::system::error_code ec, std::size_t length) 
+			{
+				if (!ec) 
+				{
+					buffer.insert(buffer.end(), buffer_.begin(), buffer_.begin() + length);
+
+					while (buffer.size() >= 4) 
+					{
+						uint32_t packet_size = *reinterpret_cast<uint32_t*>(buffer.data());
+						
+						if (buffer.size() < 4 + packet_size) 
+						{
+							break;
+						}
+
+						const unsigned char* payload = reinterpret_cast<const unsigned char*>(buffer.data() + 4);
+						PacketHandler::HandleClientPacket(data, payload, packet_size);
+
+						buffer.erase(buffer.begin(), buffer.begin() + 4 + packet_size);
+					}
+
+					Read();
+				}
+				else 
+				{
+					ServerInst::DisconnectClient(data);
+				}
+			}
+			);
+		}
+};
+
+class Server {
+	boost::asio::io_context& io_;
+	tcp::acceptor acceptor_;
+
+	bool running;
+	
+	public:
+		Server(boost::asio::io_context& io, int port) : io_(io), acceptor_(io, tcp::endpoint(tcp::v4(), port)) 
+		{
+			Logger::Success(SOCKET_CATEGORY, "Started listening on port: " + std::to_string(port));
+			running = true;
+
+			Accept();
+		}
+
+		void Stop()
+		{
+			running = false;
+		}
+
+		bool IsRunning()
+		{
+			return running;
+		}
+
+	private:
+		void OnClientConnection(boost::system::error_code ec, tcp::socket& socket)
+		{
+			if (!ec) 
+			{
+				boost::asio::ip::address addr = socket.remote_endpoint().address();
+				
+				Logger::Alert(SOCKET_CATEGORY, "Client connected: \"" + addr.to_string() + "\"...");
+				std::shared_ptr<SocketData> data = std::make_shared<SocketData>(std::move(socket), nullptr);
+				data->last_c00 = std::chrono::steady_clock::now();
+
+				std::make_shared<Session>(data)->Start();
+				
+				ServerInst::GetClients().push_back(data);
+			}
+
+			Accept();
+		}
+	
+		void Accept() 
+		{
+			acceptor_.async_accept(
+				[this](boost::system::error_code ec, tcp::socket socket) 
+				{
+					OnClientConnection(ec, socket);
+				}
+			);
+		}
+};
+
+namespace ServerInst
+{
+	std::vector<std::shared_ptr<SocketData>> clients;
+	std::mutex clients_mutex;
+
+	std::vector<std::shared_ptr<SocketData>>& GetClients()
+	{
+		return clients;
+	}
+
+	bool ContainsClient(std::shared_ptr<SocketData> data)
+	{
+		for (std::shared_ptr<SocketData> dt : GetClients())
+		{
+			if (dt == data)
 			{
 				return true;
 			}
@@ -57,148 +292,104 @@ namespace Socket
 
 		return false;
 	}
-	
-	void HandleClient(SocketData* data, DWORD bytes) 
+
+	void DisconnectClient(std::shared_ptr<SocketData> data)
 	{
-		if (!ContainsClient(data))
-		{
-			return;
-		}
+		std::lock_guard lock(clients_mutex);
+
+		auto it = std::find(clients.begin(), clients.end(), data);
 		
-		if (bytes == 0) // cliente desconectou
+		if (it != clients.end())
 		{
-			DisconnectClient(data);
-			
-			return;
-		}
-
-		PacketHandler::HandleClientPacket(data, (data->buffer + 4), ((int*) data->buffer)[0]);
-
-		ZeroMemory(data->buffer, sizeof(data->buffer));
-	
-		PostReceive(data); // da receive denovo (loop)
-	}
-	
-	void WorkerThread(const HANDLE iocp)
-	{
-		while (true) // vai dando handle nos queues (tasks assincronas que emitiram event)
-		{
-			DWORD bytes = 0;
-			ULONG_PTR key = 0;
-			LPOVERLAPPED overlapped = nullptr;
-	
-			// fica esperando por queues disponiveis, caso não tenha nada, espera infinitamente até ter (INFINITE)
-			if (!GetQueuedCompletionStatus(iocp, &bytes, &key, &overlapped, INFINITE))
+			if ((*it)->socket.is_open())
 			{
-				continue;
+				boost::asio::ip::address addr = (*it)->socket.remote_endpoint().address();
+				Logger::Alert(SOCKET_CATEGORY, "Client disconnected: \"" + addr.to_string() + "\"...");
+				(*it)->socket.close();
 			}
 
-			const auto data = CONTAINING_RECORD(overlapped, SocketData, overlapped); // pega a struct toda de onde esse ponteiro fica
-
-			HandleClient(data, bytes);
+			clients.erase(it);
 		}
 	}
 	
-	void PostReceive(SocketData* data) 
+	void RunKeepAliveTimer(std::shared_ptr<boost::asio::steady_timer> timer)
 	{
-		if (!ContainsClient(data))
-		{
-			return;
-		}
+		std::chrono::time_point now = std::chrono::steady_clock::now();
 		
-		DWORD flags = 0;
+		std::vector<std::shared_ptr<SocketData>> expired;
 
-		data->wsa_buf.buf = reinterpret_cast<char*>(data->buffer);
-		data->wsa_buf.len = sizeof(data->buffer);
-		
-		ZeroMemory(&data->overlapped, sizeof(OVERLAPPED));
-	
-		DWORD bytes = 0;
-
-		// chama receive assincrono (quando for encontrado dados, ele da handle no queue)
-		if (WSARecv(data->sock->socket, &data->wsa_buf, 1, &bytes, &flags, &data->overlapped, nullptr) == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING)
 		{
-			Logger::Error(SOCKET_CATEGORY, "Failed to receive message from: '" + GetIpFromAddr(data->sock->addr) + "'...");
-			
-			DisconnectClient(data);
-		}
-	}
+			std::lock_guard lock(clients_mutex);
 
-	void InitServer(const char* ADDRESS, const int PORT)
-	{
-		WSADATA wsa_data;
-
-		if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) 
-		{
-			exit(1);
-		}
-
-		const SOCKET server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-		if (server_socket == INVALID_SOCKET) 
-		{
-			exit(1);
-		}
-
-		sockaddr_in server_addr;
-
-		server_addr.sin_family = AF_INET;
-		server_addr.sin_addr.s_addr = inet_addr(ADDRESS);
-		server_addr.sin_port = htons(PORT);
-
-		if (bind(server_socket, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) == SOCKET_ERROR)
-		{
-			Logger::Error(SOCKET_CATEGORY, "Failed to bind socket in port: " + std::to_string(PORT));
-			exit(1);
-		}
-
-		if (listen(server_socket, SOMAXCONN) == SOCKET_ERROR) 
-		{
-			Logger::Error(SOCKET_CATEGORY, "Failed to listen socket in port: " + std::to_string(PORT));
-			exit(1);
-		}
-
-		Logger::Success(SOCKET_CATEGORY, "Server listening on port: '" + std::to_string(PORT) + "'...\n");
-
-		SYSTEM_INFO sys_info;
-		GetSystemInfo(&sys_info);
-
-		const int THREADS_SIZE = static_cast<int>(sys_info.dwNumberOfProcessors * 2);
-
-		HANDLE iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, THREADS_SIZE);
-
-		for (int i = 0; i < THREADS_SIZE; i++) // thread pool
-		{
-			std::thread(WorkerThread, iocp).detach(); // cria e já desanexa a thread
-		}
-
-		while (true) // aceita as novas conexões propostas recebidas pelo socket
-		{
-			sockaddr_in client_addr;
-			int addr_size = sizeof(client_addr);
-
-			const SOCKET client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_addr), &addr_size);
-
-			if (client_socket == INVALID_SOCKET)
+			for (std::shared_ptr<SocketData> data : GetClients())
 			{
-				Logger::Alert(SOCKET_CATEGORY, "Invalid client socket found...");
+				long long diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - data->last_c00).count();
 				
-				continue;
+				if (diff > 15000)
+				{
+					Logger::Alert(SOCKET_CATEGORY, "Client has expired keep alive time...");
+					expired.push_back(data);
+				}
+				else
+				{
+					PacketHandler::SendPacket(data, PacketHandler::CreateS00Packet());
+				}
 			}
+		}
 
-			auto* sock_obj = new SocketObject{ client_socket, client_addr };
-			auto* data = new SocketData{ {}, {}, {}, sock_obj };
+		for (std::shared_ptr<SocketData> data : expired)
+		{
+			DisconnectClient(data);
+		}
+		
+		timer->expires_after(10000ms);
+		
+		timer->async_wait([timer](const boost::system::error_code ec)
+		{
+			if (!ec)
+			{
+				RunKeepAliveTimer(timer);
+			}
+		});
+	}
+
+	void InitKeepAliveTimer(boost::asio::io_context& io)
+	{
+		std::shared_ptr<boost::asio::steady_timer> timer = std::make_shared<boost::asio::steady_timer>(io, 10000ms);
+		
+		timer->async_wait([timer](const boost::system::error_code ec)
+		{
+			if (!ec)
+			{
+				RunKeepAliveTimer(timer);
+			}
+		});
+	}
 	
-			clients.push_back(data);	
+	void InitServer()
+	{
+		boost::asio::io_context io;
+		
+		Auth::InitDatabase();
+		
+		std::vector<std::thread> threads;
+		const int THREADS_SIZE = std::thread::hardware_concurrency() - 2;
+	
+		Server server(io, 8080);
+    
+		for (int i = 0; i < THREADS_SIZE; ++i)
+		{
+        		threads.emplace_back([&io]{ io.run(); });
+		}
 
+		InitKeepAliveTimer(io);
+		PacketHandler::InitPacketProcesser();
 
-			// adiciona o socket ao IOCP principal (logo, qualquer função suportada pelo IOCP que for callada, vai ser handle no queue)
-			CreateIoCompletionPort(reinterpret_cast<HANDLE>(client_socket), iocp, reinterpret_cast<ULONG_PTR>(sock_obj), 0);
+		io.run();
 
-			Logger::Success(SOCKET_CATEGORY, "Client connected: '" + GetIpFromAddr(client_addr) + "'...");
-			
-			PostReceive(data); // primeiro receive (inicia o loop de receives do client)
+		for (std::thread& t : threads)
+		{
+        		t.join();
 		}
 	}
 }
-

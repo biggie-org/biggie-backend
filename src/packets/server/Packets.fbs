@@ -1,14 +1,19 @@
+namespace SPackets;
+
 table S00PacketKeepAlive
 {
-	test: byte;
 }
 
-union Packets { S00PacketKeepAlive }
-
-table Packet
+table S01PacketAuthenticate
 {
-	id: byte;
+	uid: string;
+}
+
+union Packets { S00PacketKeepAlive, S01PacketAuthenticate }
+
+table SPacket
+{
 	packets: Packets;
 }
 
-root_type Packet;
+root_type SPacket;

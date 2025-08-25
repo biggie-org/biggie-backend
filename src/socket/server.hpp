@@ -5,44 +5,77 @@
 #include <winnt.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <vector>
 #include <windows.h>
 #include <string>
+#include <boost/asio.hpp>
 
+#include "../../libs/hiredis/async.h"
+
+typedef struct OverlappedReceive OverlappedReceive;
+typedef struct CompletedQueue CompletedQueue;
+typedef struct CommandQueue CommandQueue;
 typedef struct SocketObject SocketObject;
+typedef struct AuthContext AuthContext;
 typedef struct SocketData SocketData;
 typedef struct UserData UserData;
 
+#define SOCKET_CATEGORY "Socket"
+#define AUTH_CATEGORY "Auth"
+
 typedef sockaddr_in sockaddr_in;
 
-struct SocketObject
-{
-	SOCKET      socket;
-	sockaddr_in addr;
-};
+using boost::asio::ip::tcp;
 
 struct SocketData 
 {
-	OVERLAPPED             overlapped;
-	WSABUF                 wsa_buf;
+	tcp::socket                           socket;
+	UserData*                             data;
 
-	unsigned char          buffer[512];
-	SocketObject*          sock;	
+	bool                                  is_authed = false;
 
-	//UserData*              data; implementar isso
+	std::string                           uname = "";
+	int                                   uid = -1;
+
+	std::chrono::steady_clock::time_point last_c00;
+
+	SocketData(tcp::socket socket, UserData* data): socket(std::move(socket)), data(data) {}
 };
 
-struct UserData
+struct OverlappedReceive 
 {
-	std::string user_name;
-
-	int         is_authed;
-	int         user_id;
+	OVERLAPPED overlapped;
+	WSABUF wsa_buf;
+	SocketData* socket_data;
+	unsigned char buff[512];
 };
 
-namespace Socket 
+struct CommandQueue
 {
-	void InitServer       (const char* ADDRESS, int PORT);
-	void DisconnectClient (const SocketData* data);
+	std::shared_ptr<SocketData> data;
+	std::string                 uname;
+	std::string                 upass;
+};
+
+struct AuthContext
+{
+	SocketData* data;
+	std::string       upass;
+	std::string       uname;
+};
+
+namespace Auth
+{
+	void               SendAuthenticateAsync (std::shared_ptr<SocketData> data, const std::string uname, const std::string upass);
+	redisAsyncContext* GetConnection         ();
+}
+
+namespace ServerInst
+{
+	std::vector<std::shared_ptr<SocketData>>& GetClients      ();
+	void                                      InitServer      ();
+	bool                                      ContainsClient  (std::shared_ptr<SocketData> data);
+	void                                      DisconnectClient(std::shared_ptr<SocketData> data);
 }
 
 #endif

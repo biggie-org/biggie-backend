@@ -5,5 +5,5 @@
  */
 int main(void)
 {
-	Socket::InitServer("127.0.0.1", 8080);
+	ServerInst::InitServer();
 }

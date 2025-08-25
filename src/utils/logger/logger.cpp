@@ -1,9 +1,12 @@
 #include <iostream>
 #include <sstream>
 #include <ctime>
+#include <mutex>
 
 namespace Logger
 {
+	std::mutex logger_mutex;
+	
 	std::tm GetNow()
 	{
 		const std::time_t time = std::time(nullptr);
@@ -42,6 +45,8 @@ namespace Logger
 	
 	void Error(const std::string& category, const std::string& str)
 	{
+		std::lock_guard<std::mutex> lock(logger_mutex);
+		
 		std::stringstream stream;
 		const std::tm now = GetNow();
 
@@ -50,6 +55,8 @@ namespace Logger
 
 	void Alert(const std::string& category, const std::string& str)
 	{
+		std::lock_guard<std::mutex> lock(logger_mutex);
+		
 		std::stringstream stream;
 		std::tm now = GetNow();
 
@@ -58,6 +65,8 @@ namespace Logger
 
 	void Success(const std::string& category, const std::string& str)
 	{
+		std::lock_guard<std::mutex> lock(logger_mutex);
+		
 		std::stringstream stream;
 		const std::tm now = GetNow();
 

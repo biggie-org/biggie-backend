@@ -5,8 +5,6 @@
 
 #include <string>
 
-#define SOCKET_CATEGORY "Socket"
-
 namespace Logger
 {
 	void Error   (const std::string& category, const std::string& str);

@@ -1,14 +1,20 @@
-table C00PacketKeepAlive 
+namespace CPackets;
+
+table C00PacketKeepAlive
 {
-	test: byte;
 }
 
-union Packets { C00PacketKeepAlive }
-
-table Packet 
+table C01PacketAuthenticate
 {
-	id: byte;
+	uname: string;
+	upass: string;
+}
+
+union Packets { C00PacketKeepAlive, C01PacketAuthenticate }
+
+table CPacket
+{
 	packets: Packets;
 }
 
-root_type Packet;
+root_type CPacket;
