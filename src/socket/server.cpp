@@ -68,6 +68,7 @@ namespace Auth
 		}
 
 		std::string upass = "";
+		std::uint8_t urole = 0;
 
 		for (int i = 0; i + 1 < reply->elements; i += 2)
 		{
@@ -85,6 +86,10 @@ namespace Auth
 			else if (field == "upass")
 			{
 				upass = value;
+			}
+			else if (field == "urole")
+			{
+				cmd->data->role = static_cast<uint8_t>(std::stoi(value));
 			}
 		}
 
@@ -187,6 +192,14 @@ class Session : public std::enable_shared_from_this<Session>
 			{
 				if (!ec) 
 				{
+					if (length > 1024) 
+					{
+						boost::asio::ip::address addr = data->socket.remote_endpoint().address();
+						
+						Logger::Alert(SOCKET_CATEGORY, "User: \"" + addr.to_string() + "\" " + " sent a too big message...");
+						ServerInst::DisconnectClient(data);
+					}
+					
 					buffer.insert(buffer.end(), buffer_.begin(), buffer_.begin() + length);
 
 					while (buffer.size() >= 4) 

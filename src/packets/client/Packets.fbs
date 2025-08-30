@@ -2,6 +2,7 @@ namespace CPackets;
 
 table C00PacketKeepAlive
 {
+	name: string;
 }
 
 table C01PacketAuthenticate
@@ -10,7 +11,19 @@ table C01PacketAuthenticate
 	upass: string;
 }
 
-union Packets { C00PacketKeepAlive, C01PacketAuthenticate }
+table C02PacketIRC
+{
+	content: string;
+	tell: string;
+	is_tell: bool;
+}
+
+table C03PacketCheck
+{
+	names: string;
+}
+
+union Packets { C00PacketKeepAlive, C01PacketAuthenticate, C02PacketIRC, C03PacketCheck }
 
 table CPacket
 {

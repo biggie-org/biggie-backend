@@ -9,7 +9,24 @@ table S01PacketAuthenticate
 	uid: string;
 }
 
-union Packets { S00PacketKeepAlive, S01PacketAuthenticate }
+table S02PacketIRC
+{
+	author_role_id: ubyte;
+	author_name: string;
+
+	content: string;
+
+	is_tell: bool;
+
+	to: string;
+}
+
+table S03PacketCheck
+{
+	names: string;
+}
+
+union Packets { S00PacketKeepAlive, S01PacketAuthenticate, S02PacketIRC, S03PacketCheck }
 
 table SPacket
 {

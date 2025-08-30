@@ -1,5 +1,6 @@
 #include "../server/Packets_generated.h"
 #include "../client/Packets_generated.h"
+#include <boost/algorithm/string.hpp>
 
 #include "../../socket/server.hpp"
 #include "handler.hpp"
@@ -41,6 +42,19 @@ namespace PacketHandler
 				info << "C01:\n{\n";
 				info << "|    Name: \"" << uname << "\"\n";
 				info << "|    Pass: \"" << upass << "\"\n";
+				info << "}";
+
+				return info.str();
+			}
+
+			case 2:
+			{
+				std::stringstream info;
+
+				const char* content = reinterpret_cast<const CPackets::C02PacketIRC*>(packet)->content()->c_str();
+				
+				info << "C02:\n{\n";
+				info << "|    Content: \"" << content << "\"\n";
 				info << "}";
 
 				return info.str();
@@ -165,6 +179,20 @@ namespace PacketHandler
 		return builder;
 	}
 
+	std::shared_ptr<flatbuffers::FlatBufferBuilder> CreateS03Packet(std::string names)
+	{
+		std::shared_ptr<flatbuffers::FlatBufferBuilder> builder = std::make_shared<flatbuffers::FlatBufferBuilder>(1024);
+
+		flatbuffers::Offset<flatbuffers::String> name_s = builder->CreateString(names);
+
+		flatbuffers::Offset<SPackets::S03PacketCheck> S03 = SPackets::CreateS03PacketCheck(*builder, name_s);
+		flatbuffers::Offset<SPackets::SPacket> packet = SPackets::CreateSPacket(*builder, SPackets::Packets::Packets_S03PacketCheck, S03.Union());
+		
+		builder->Finish(packet);
+
+		return builder;
+	}
+
 	std::shared_ptr<flatbuffers::FlatBufferBuilder> CreateS01Packet(std::string uid)
 	{
 		std::shared_ptr<flatbuffers::FlatBufferBuilder> builder = std::make_shared<flatbuffers::FlatBufferBuilder>(1024);
@@ -178,9 +206,31 @@ namespace PacketHandler
 
 		return builder;
 	}
+
+	std::shared_ptr<flatbuffers::FlatBufferBuilder> CreateS02Packet(std::uint8_t author_role, std::string author_name, std::string content, boolean is_tell, std::string to)
+	{
+		std::shared_ptr<flatbuffers::FlatBufferBuilder> builder = std::make_shared<flatbuffers::FlatBufferBuilder>(1024);
+
+		flatbuffers::Offset<flatbuffers::String> name = builder->CreateString(author_name);
+		flatbuffers::Offset<flatbuffers::String> _content = builder->CreateString(content);
+
+		flatbuffers::Offset<flatbuffers::String> _to = builder->CreateString(to);
+
+		flatbuffers::Offset<SPackets::S02PacketIRC> S02 = SPackets::CreateS02PacketIRC(*builder, author_role, name, _content, is_tell, _to);
+		flatbuffers::Offset<SPackets::SPacket> packet = SPackets::CreateSPacket(*builder, SPackets::Packets::Packets_S02PacketIRC, S02.Union());
+
+		builder->Finish(packet);
+
+		return builder;
+	}
 	
 	void HandleC00Packet(const CPackets::CPacket* packet, std::shared_ptr<SocketData> socket)
 	{
+		if (!ServerInst::ContainsClient(socket))
+		{
+			return;
+		}
+
 		const CPackets::C00PacketKeepAlive* c00 = packet->packets_as_C00PacketKeepAlive();
 
 		if (c00 == nullptr)
@@ -190,8 +240,16 @@ namespace PacketHandler
 
 			return;
 		}
+
+		if (c00->name()->empty()) 
+		{
+			socket->mine_name = "";
+		} 
+		else 
+		{
+			socket->mine_name = c00->name()->str();
+		}
 		
-		Logger::Alert(HANDLER_CATEGORY, "C00 Packet Info:\n" + GetPacketInfoFormatted(c00, 0));
 		socket->last_c00 = std::chrono::steady_clock::now();
 	}
 
@@ -222,6 +280,130 @@ namespace PacketHandler
 
 		Auth::SendAuthenticateAsync(socket, _uname, _upass);
 	}
+
+	void HandleC02Packet(const CPackets::CPacket* packet, std::shared_ptr<SocketData> socket) 
+	{
+		if (!ServerInst::ContainsClient(socket))
+		{
+			return;
+		}
+		
+		const CPackets::C02PacketIRC* c02 = packet->packets_as_C02PacketIRC();
+
+		if (c02 == nullptr) 
+		{
+			ServerInst::DisconnectClient(socket);
+			Logger::Error(HANDLER_CATEGORY, "Invalid packet with \"C02\" id sent...");
+
+			return;
+		}
+
+		Logger::Alert(HANDLER_CATEGORY, "C02 Packet Info:\n" + GetPacketInfoFormatted(c02, 2));
+		
+		std::shared_ptr<flatbuffers::FlatBufferBuilder> s02 = CreateS02Packet(socket->role, socket->uname, std::string(c02->content()->c_str()), c02->is_tell(), c02->tell() == nullptr ? "" : c02->tell()->str());
+
+		std::string tell = c02->tell()->str();
+
+		if (c02->is_tell() && (tell.empty() || tell == socket->uname)) 
+		{
+			return;
+		}
+
+		for (std::shared_ptr<SocketData> data : ServerInst::GetClients()) 
+		{
+			if (!data->is_authed) 
+			{
+				continue;
+			}
+
+			if (c02->is_tell() && (data->uname != tell && data != socket)) 
+			{
+				continue;
+			}
+			
+			SendPacket(data, s02);
+		}
+	}
+
+	std::shared_ptr<SocketData> GetUserFromName(std::string name)
+	{
+		for (std::shared_ptr<SocketData> data : ServerInst::GetClients()) 
+		{
+			if (data->mine_name.empty())
+			{
+				continue;
+			}
+
+			if (data->mine_name == name)
+			{
+				return data;
+			}
+		}
+
+		return nullptr;
+	}
+
+	void HandleC03Packet(const CPackets::CPacket* packet, std::shared_ptr<SocketData> socket)
+	{
+		const CPackets::C03PacketCheck* c03 = packet->packets_as_C03PacketCheck();
+
+		if (c03 == nullptr)
+		{
+			ServerInst::DisconnectClient(socket);
+			Logger::Error(HANDLER_CATEGORY, "Invalid packet with \"C03\" id sent...");
+
+			return;
+		}
+
+		std::string names = c03->names()->str();
+		std::vector<std::string> formatted;
+
+		boost::split(formatted, names, boost::is_any_of("|"));
+
+		std::string final = "";
+
+		for (int i = 0; i < formatted.size(); i++) 
+		{
+			std::shared_ptr<SocketData> data = GetUserFromName(formatted[i]);
+
+			if (i > 0) 
+			{
+				final += "|";
+			}
+			
+			if (data == nullptr)
+			{
+				final += formatted[i] + "|";
+				final += " |";
+				final += " ";
+
+				continue;
+			}
+
+			if (!data->is_authed)
+			{
+				final += formatted[i] + "|";
+				final += " |";
+				final += " ";
+
+				continue;
+			}
+
+
+			final += data->mine_name + "|";
+			final += data->uname + "|";
+			final += std::to_string(static_cast<int>(data->role));
+		}
+
+		if (final == "")
+		{
+			return;
+		}
+
+		std::shared_ptr<flatbuffers::FlatBufferBuilder> s03 = CreateS03Packet(final);
+
+		SendPacket(socket, s03);
+	}
 	
 	void HandleClientPacket(std::shared_ptr<SocketData> socket, const unsigned char* data, const int length)
 	{
@@ -234,12 +416,10 @@ namespace PacketHandler
 		
 		const CPackets::CPacket* packet = CPackets::GetCPacket(data);
 
-		Logger::Alert("Handler", "Handling packet with type: " + std::to_string(packet->packets_type()));
+		Logger::Alert(HANDLER_CATEGORY, "Handling packet with ID: " + std::to_string(packet->packets_type()));
 		
-		if (packet->packets_type() != CPackets::Packets_C01PacketAuthenticate && !socket->is_authed)
+		if (packet->packets_type() != CPackets::Packets_C01PacketAuthenticate && packet->packets_type() != CPackets::Packets_C00PacketKeepAlive && !socket->is_authed)
 		{
-			ServerInst::DisconnectClient(socket);
-			
 			return;
 		}
 		
@@ -250,6 +430,14 @@ namespace PacketHandler
 		else if (packet->packets_type() == CPackets::Packets_C01PacketAuthenticate)
 		{
 			HandleC01Packet(packet, socket);
+		} 
+		else if (packet->packets_type() == CPackets::Packets_C02PacketIRC)
+		{
+			HandleC02Packet(packet, socket);
+		}
+		else if (packet->packets_type() == CPackets::Packets_C03PacketCheck)
+		{
+			HandleC03Packet(packet, socket);
 		}
 		else
 		{

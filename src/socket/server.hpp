@@ -39,6 +39,9 @@ struct SocketData
 
 	std::chrono::steady_clock::time_point last_c00;
 
+	std::uint8_t                          role = 0;
+	std::string                           mine_name = "";
+
 	SocketData(tcp::socket socket, UserData* data): socket(std::move(socket)), data(data) {}
 };
 

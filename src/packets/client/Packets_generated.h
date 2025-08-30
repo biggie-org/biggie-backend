@@ -21,6 +21,12 @@ struct C00PacketKeepAliveBuilder;
 struct C01PacketAuthenticate;
 struct C01PacketAuthenticateBuilder;
 
+struct C02PacketIRC;
+struct C02PacketIRCBuilder;
+
+struct C03PacketCheck;
+struct C03PacketCheckBuilder;
+
 struct CPacket;
 struct CPacketBuilder;
 
@@ -28,31 +34,37 @@ enum Packets : uint8_t {
   Packets_NONE = 0,
   Packets_C00PacketKeepAlive = 1,
   Packets_C01PacketAuthenticate = 2,
+  Packets_C02PacketIRC = 3,
+  Packets_C03PacketCheck = 4,
   Packets_MIN = Packets_NONE,
-  Packets_MAX = Packets_C01PacketAuthenticate
+  Packets_MAX = Packets_C03PacketCheck
 };
 
-inline const Packets (&EnumValuesPackets())[3] {
+inline const Packets (&EnumValuesPackets())[5] {
   static const Packets values[] = {
     Packets_NONE,
     Packets_C00PacketKeepAlive,
-    Packets_C01PacketAuthenticate
+    Packets_C01PacketAuthenticate,
+    Packets_C02PacketIRC,
+    Packets_C03PacketCheck
   };
   return values;
 }
 
 inline const char * const *EnumNamesPackets() {
-  static const char * const names[4] = {
+  static const char * const names[6] = {
     "NONE",
     "C00PacketKeepAlive",
     "C01PacketAuthenticate",
+    "C02PacketIRC",
+    "C03PacketCheck",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNamePackets(Packets e) {
-  if (::flatbuffers::IsOutRange(e, Packets_NONE, Packets_C01PacketAuthenticate)) return "";
+  if (::flatbuffers::IsOutRange(e, Packets_NONE, Packets_C03PacketCheck)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesPackets()[index];
 }
@@ -69,13 +81,29 @@ template<> struct PacketsTraits<CPackets::C01PacketAuthenticate> {
   static const Packets enum_value = Packets_C01PacketAuthenticate;
 };
 
+template<> struct PacketsTraits<CPackets::C02PacketIRC> {
+  static const Packets enum_value = Packets_C02PacketIRC;
+};
+
+template<> struct PacketsTraits<CPackets::C03PacketCheck> {
+  static const Packets enum_value = Packets_C03PacketCheck;
+};
+
 bool VerifyPackets(::flatbuffers::Verifier &verifier, const void *obj, Packets type);
 bool VerifyPacketsVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
 
 struct C00PacketKeepAlive FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef C00PacketKeepAliveBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_NAME = 4
+  };
+  const ::flatbuffers::String *name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_NAME) &&
+           verifier.VerifyString(name()) &&
            verifier.EndTable();
   }
 };
@@ -84,6 +112,9 @@ struct C00PacketKeepAliveBuilder {
   typedef C00PacketKeepAlive Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
+    fbb_.AddOffset(C00PacketKeepAlive::VT_NAME, name);
+  }
   explicit C00PacketKeepAliveBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -96,9 +127,20 @@ struct C00PacketKeepAliveBuilder {
 };
 
 inline ::flatbuffers::Offset<C00PacketKeepAlive> CreateC00PacketKeepAlive(
-    ::flatbuffers::FlatBufferBuilder &_fbb) {
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
   C00PacketKeepAliveBuilder builder_(_fbb);
+  builder_.add_name(name);
   return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<C00PacketKeepAlive> CreateC00PacketKeepAliveDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *name = nullptr) {
+  auto name__ = name ? _fbb.CreateString(name) : 0;
+  return CPackets::CreateC00PacketKeepAlive(
+      _fbb,
+      name__);
 }
 
 struct C01PacketAuthenticate FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -166,6 +208,134 @@ inline ::flatbuffers::Offset<C01PacketAuthenticate> CreateC01PacketAuthenticateD
       upass__);
 }
 
+struct C02PacketIRC FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef C02PacketIRCBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_CONTENT = 4,
+    VT_TELL = 6,
+    VT_IS_TELL = 8
+  };
+  const ::flatbuffers::String *content() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_CONTENT);
+  }
+  const ::flatbuffers::String *tell() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_TELL);
+  }
+  bool is_tell() const {
+    return GetField<uint8_t>(VT_IS_TELL, 0) != 0;
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_CONTENT) &&
+           verifier.VerifyString(content()) &&
+           VerifyOffset(verifier, VT_TELL) &&
+           verifier.VerifyString(tell()) &&
+           VerifyField<uint8_t>(verifier, VT_IS_TELL, 1) &&
+           verifier.EndTable();
+  }
+};
+
+struct C02PacketIRCBuilder {
+  typedef C02PacketIRC Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_content(::flatbuffers::Offset<::flatbuffers::String> content) {
+    fbb_.AddOffset(C02PacketIRC::VT_CONTENT, content);
+  }
+  void add_tell(::flatbuffers::Offset<::flatbuffers::String> tell) {
+    fbb_.AddOffset(C02PacketIRC::VT_TELL, tell);
+  }
+  void add_is_tell(bool is_tell) {
+    fbb_.AddElement<uint8_t>(C02PacketIRC::VT_IS_TELL, static_cast<uint8_t>(is_tell), 0);
+  }
+  explicit C02PacketIRCBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<C02PacketIRC> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<C02PacketIRC>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<C02PacketIRC> CreateC02PacketIRC(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> content = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> tell = 0,
+    bool is_tell = false) {
+  C02PacketIRCBuilder builder_(_fbb);
+  builder_.add_tell(tell);
+  builder_.add_content(content);
+  builder_.add_is_tell(is_tell);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<C02PacketIRC> CreateC02PacketIRCDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *content = nullptr,
+    const char *tell = nullptr,
+    bool is_tell = false) {
+  auto content__ = content ? _fbb.CreateString(content) : 0;
+  auto tell__ = tell ? _fbb.CreateString(tell) : 0;
+  return CPackets::CreateC02PacketIRC(
+      _fbb,
+      content__,
+      tell__,
+      is_tell);
+}
+
+struct C03PacketCheck FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef C03PacketCheckBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_NAMES = 4
+  };
+  const ::flatbuffers::String *names() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_NAMES);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_NAMES) &&
+           verifier.VerifyString(names()) &&
+           verifier.EndTable();
+  }
+};
+
+struct C03PacketCheckBuilder {
+  typedef C03PacketCheck Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_names(::flatbuffers::Offset<::flatbuffers::String> names) {
+    fbb_.AddOffset(C03PacketCheck::VT_NAMES, names);
+  }
+  explicit C03PacketCheckBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<C03PacketCheck> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<C03PacketCheck>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<C03PacketCheck> CreateC03PacketCheck(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> names = 0) {
+  C03PacketCheckBuilder builder_(_fbb);
+  builder_.add_names(names);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<C03PacketCheck> CreateC03PacketCheckDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *names = nullptr) {
+  auto names__ = names ? _fbb.CreateString(names) : 0;
+  return CPackets::CreateC03PacketCheck(
+      _fbb,
+      names__);
+}
+
 struct CPacket FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef CPacketBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -185,6 +355,12 @@ struct CPacket FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const CPackets::C01PacketAuthenticate *packets_as_C01PacketAuthenticate() const {
     return packets_type() == CPackets::Packets_C01PacketAuthenticate ? static_cast<const CPackets::C01PacketAuthenticate *>(packets()) : nullptr;
   }
+  const CPackets::C02PacketIRC *packets_as_C02PacketIRC() const {
+    return packets_type() == CPackets::Packets_C02PacketIRC ? static_cast<const CPackets::C02PacketIRC *>(packets()) : nullptr;
+  }
+  const CPackets::C03PacketCheck *packets_as_C03PacketCheck() const {
+    return packets_type() == CPackets::Packets_C03PacketCheck ? static_cast<const CPackets::C03PacketCheck *>(packets()) : nullptr;
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_PACKETS_TYPE, 1) &&
@@ -200,6 +376,14 @@ template<> inline const CPackets::C00PacketKeepAlive *CPacket::packets_as<CPacke
 
 template<> inline const CPackets::C01PacketAuthenticate *CPacket::packets_as<CPackets::C01PacketAuthenticate>() const {
   return packets_as_C01PacketAuthenticate();
+}
+
+template<> inline const CPackets::C02PacketIRC *CPacket::packets_as<CPackets::C02PacketIRC>() const {
+  return packets_as_C02PacketIRC();
+}
+
+template<> inline const CPackets::C03PacketCheck *CPacket::packets_as<CPackets::C03PacketCheck>() const {
+  return packets_as_C03PacketCheck();
 }
 
 struct CPacketBuilder {
@@ -244,6 +428,14 @@ inline bool VerifyPackets(::flatbuffers::Verifier &verifier, const void *obj, Pa
     }
     case Packets_C01PacketAuthenticate: {
       auto ptr = reinterpret_cast<const CPackets::C01PacketAuthenticate *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case Packets_C02PacketIRC: {
+      auto ptr = reinterpret_cast<const CPackets::C02PacketIRC *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case Packets_C03PacketCheck: {
+      auto ptr = reinterpret_cast<const CPackets::C03PacketCheck *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;
