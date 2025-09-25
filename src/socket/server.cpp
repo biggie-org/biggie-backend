@@ -133,9 +133,9 @@ namespace Auth
 	void InitDatabase() 
 	{
 		loop = uv_default_loop();
-		connection = redisAsyncConnect("127.0.0.1", 3040);
+		connection = redisAsyncConnect("", 3040);
 
-		redisAsyncCommand(connection, nullptr, nullptr, "AUTH %s", "suqqinhodasilva4k");
+		redisAsyncCommand(connection, nullptr, nullptr, "AUTH %s", "");
 		
 		if (!connection || connection->err) 
 		{
